@@ -1,4 +1,4 @@
-# element ui 源码解读
+# element ui 源码学习
 
 [element](https://github.com/ElemeFE/element)
 版本:2.3.4
@@ -320,8 +320,79 @@ export const generateId = function() {
 };
 ```
 
+## date.js
+基本是[fecha](https://github.com/taylorhakes/fecha)库的源代码.
+
+## popper.js
+[popper.js](https://github.com/FezVrasta/popper.js)小幅修改版.
+
+## sync.js
+同步组件的prop和它上下文中的变量
+```
+const SYNC_HOOK_PROP = '$v-sync';
+
+/**
+ * v-sync directive
+ *
+ * Usage:
+ *  v-sync:component-prop="context prop name"
+ *
+ * If your want to sync component's prop "visible" to context prop "myVisible", use like this:
+ *  v-sync:visible="myVisible"
+ */
+export default {
+  bind(el, binding, vnode) {
+    // 获取上下文，即组件渲染的作用域中
+    const context = vnode.context;
+    const component = vnode.child;// 返回组件实例
+    const expression = binding.expression;// 返回表达式
+    const prop = binding.arg; // 返回传参
+
+    if (!expression || !prop) {// 如果没有表达式或者传参
+      console.warn('v-sync should specify arg & expression, for example: v-sync:visible="myVisible"');
+      return;
+    }
+
+    if (!component || !component.$watch) {// 判断是否包含 watch 来确保是 Vue 的组件
+      console.warn('v-sync is only available on Vue Component');
+      return;
+    }
+
+    // 将组件的 prop 与上下文中的信息同步，返回取消 watch 的函数
+    const unwatchContext = context.$watch(expression, (val) => {
+      component[prop] = val;
+    });
+
+    // 将上下文中的信息和组件的 prop，返回取消 watch 的函数
+    const unwatchComponent = component.$watch(prop, (val) => {
+      context[expression] = val;
+    });
+
+    // 保存到组件实例中
+    Object.defineProperty(component, SYNC_HOOK_PROP, {
+      value: {
+        unwatchContext,
+        unwatchComponent
+      },
+      enumerable: false
+    });
+  },
+
+  unbind(el, binding, vnode) {
+    const component = vnode.child;
+    if (component && component[SYNC_HOOK_PROP]) {// 取消监听
+      const { unwatchContext, unwatchComponent } = component[SYNC_HOOK_PROP];
+      unwatchContext && unwatchContext();
+      unwatchComponent && unwatchComponent();
+    }
+  }
+};
+
+```
+
+# directives
 ## clickoutside
-是一个点击元素外隐藏的directive.
+一个点击元素外隐藏.
 实现没看明白...
 
 这个比较好理解
@@ -341,6 +412,63 @@ export default {
   }
 }
 ```
+
+## mousewheel
+滚轮事件的兼容性处理
+[normalize-wheel](https://github.com/basilfx/normalize-wheel)
+```
+import normalizeWheel from 'normalize-wheel';
+
+const isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().indexOf('firefox') > -1;
+
+const mousewheel = function(element, callback) {
+  if (element && element.addEventListener) {
+    element.addEventListener(isFirefox ? 'DOMMouseScroll' : 'mousewheel', function(event) {
+      const normalized = normalizeWheel(event);
+      callback && callback.apply(this, [event, normalized]);
+    });
+  }
+};
+
+export default {
+  bind(el, binding) {
+    mousewheel(el, binding.value);
+  }
+};
+```
+
+## repeat-click
+控制鼠标按下时不断触发事件
+```
+import { once, on } from 'element-ui/src/utils/dom';
+
+export default {
+  bind(el, binding, vnode) {
+    let interval = null;
+    let startTime;
+    // 获取表达式的内容
+    const handler = () => vnode.context[binding.expression].apply();
+    const clear = () => {
+      // 如果当前时间距离开始时间少于 100ms，执行 handler
+      if (new Date() - startTime < 100) {
+        handler();
+      }
+      clearInterval(interval);
+      interval = null;
+    };
+
+    // 绑定鼠标点击下的事件
+    on(el, 'mousedown', (e) => {
+      if (e.button !== 0) return;
+      startTime = new Date();// 更新当前时间
+      once(document, 'mouseup', clear);// 给鼠标抬起绑定一次性事件 clear
+      clearInterval(interval);
+      interval = setInterval(handler, 100);// 开始定时器
+    });
+  }
+};
+```
+
 
 # theme-chalk
 用的sass,用gulp单独打包,估计开发时是一边开watch一边开发的,变量的命名方式有点像css变量.
